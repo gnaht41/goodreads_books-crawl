@@ -1,0 +1,16 @@
+{
+    "name": "mongodb-source-connector",
+    "config": {
+        "connector.class": "com.mongodb.kafka.connect.MongoSourceConnector",
+        "tasks.max": "1",
+        "connection.uri": "mongodb://mongodb:27017",
+        "database": "goodreads_db",
+        "collection": "books",
+        "topic.prefix": "mongo_",
+        "output.format.value": "json",
+        "output.format.key": "json",
+        "poll.max.batch.size": 1000,
+        "poll.await.time.ms": 5000,
+        "batch.max.rows": "1000"
+    }
+}

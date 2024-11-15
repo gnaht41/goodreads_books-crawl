@@ -1,0 +1,115 @@
+version: '3.8'
+
+services:
+  # Scrapy service
+  scrapy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/goodreads_db
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: scrapy crawl goodreads_spider
+    networks:
+      - mynetwork
+
+  # MongoDB service
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    command: --replSet rs0 --oplogSize 128
+    volumes:
+      - mongo_data:/data/db
+      - ./init.js:/docker-entrypoint-initdb.d/init.js # Tạo replica set sau khi khởi động
+    networks:
+      - mynetwork
+
+  # Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - mynetwork
+
+  # Kafka broker
+  broker:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: broker
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "29092:29092"
+      - "9092:9092"
+    networks:
+      - mynetwork
+
+  # Kafka Connect (MongoDB Source Connector)
+  connect:
+    image: confluentinc/cp-kafka-connect:7.4.0
+    container_name: connect
+    depends_on:
+      - broker
+      - mongodb
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: broker:29092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: "compose-connect-group"
+      CONNECT_CONFIG_STORAGE_TOPIC: "docker-connect-configs"
+      CONNECT_OFFSET_STORAGE_TOPIC: "docker-connect-offsets"
+      CONNECT_STATUS_STORAGE_TOPIC: "docker-connect-status"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/plugins"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "connect"
+    volumes:
+      - ./plugins:/plugins
+    networks:
+      - mynetwork
+    command:
+      - "bash"
+      - "-c"
+      - |
+        confluent-hub install --no-prompt mongodb/kafka-connect-mongodb:latest && \
+        /etc/confluent/docker/run
+
+  # Kafdrop - Kafka Monitoring
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: kafdrop
+    depends_on:
+      - broker
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKER_CONNECT: "broker:29092"
+    networks:
+      - mynetwork
+
+networks:
+  mynetwork:
+
+
+volumes:
+  mongo_data:
